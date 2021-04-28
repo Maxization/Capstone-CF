@@ -1,4 +1,4 @@
-Description:  TODO
+Description:  This template deploys MySQL database
 
 Parameters:
   ApplicationStackName:
