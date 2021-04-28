@@ -1,0 +1,271 @@
+Description: >-
+  Application Template: Demonstrates how to reference resources from a different stack.
+  This template provisions an EC2 instance in a VPC Subnet provisioned in a different stack.
+
+# This template creates:
+#   Amazon EC2 instance
+#   Security Group
+
+######################
+# Parameters section
+######################
+
+Parameters:
+
+  NetworkStackName:
+    Description: >-
+      Name of an active CloudFormation stack that contains the networking
+      resources, such as the VPC and subnet that will be used in this stack.
+    Type: String
+    MinLength: 1
+    MaxLength: 255
+    AllowedPattern: '^[a-zA-Z][-a-zA-Z0-9]*$'
+    Default: capstone-network
+
+  AmazonLinuxAMIID:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2
+
+######################
+# Resources section
+######################
+
+Resources:
+  #DBSG:
+  #  Type: AWS::EC2::SecurityGroup
+  #  Properties:
+  #    GroupDescription: Database SG
+  #    VpcId:
+  #      Fn::ImportValue:
+  #        !Sub ${NetworkStackName}-VPCID
+  #    SecurityGroupIngress:
+  #      - IpProtocol: tcp
+  #        FromPort: 3306
+  #        ToPort: 3306
+  #        SourceSecurityGroupId: !GetAtt AppSG.GroupId
+  #    SecurityGroupEgress:
+  #      - IpProtocol: -1
+  #        CidrIp: 0.0.0.0/0
+  #    Tags:
+  #      - Key: Name
+  #        Value: Database Security Group
+          
+  BastionHostSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Bastion Host SG
+      VpcId:
+        Fn::ImportValue:
+          !Sub ${NetworkStackName}-VPCID
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: Bastion Host Security Group
+
+  BastionHost: 
+    Type: AWS::EC2::Instance
+    Properties: 
+      ImageId: !Ref AmazonLinuxAMIID
+      InstanceType: t2.micro
+      KeyName: BastionHostKey
+      BlockDeviceMappings: 
+      - DeviceName: "/dev/xvda"
+        Ebs: 
+          VolumeType: "gp2"
+          DeleteOnTermination: "true"
+          VolumeSize: "8"
+      NetworkInterfaces: 
+      - AssociatePublicIpAddress: "true"
+        DeviceIndex: "0"
+        GroupSet: 
+        - !Ref BastionHostSG
+        SubnetId:
+          Fn::ImportValue:
+            Fn::Sub: ${NetworkStackName}-PublicSubnet1
+      Tags:
+        - Key: Name
+          Value: Bastion Host
+          
+  ALBSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Load Balancer SG
+      VpcId:
+        Fn::ImportValue:
+          !Sub ${NetworkStackName}-VPCID
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: Load Balancer Security Group
+
+  AppSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: App SG
+      VpcId:
+        Fn::ImportValue:
+          !Sub ${NetworkStackName}-VPCID
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId: !GetAtt ALBSG.GroupId
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          SourceSecurityGroupId: !GetAtt ALBSG.GroupId
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          SourceSecurityGroupId: !GetAtt BastionHostSG.GroupId
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: App Security Group
+
+  #TemplateRole:
+  #  Type: 'AWS::IAM::Role'
+  #  Properties:
+  #    AssumeRolePolicyDocument:
+  #      Statement:
+  #        - Effect: Allow
+  #          Principal:
+  #            Service:
+  #              - ec2.amazonaws.com
+  #          Action:
+  #            - 'sts:AssumeRole'
+  #    Path: /
+  #    Policies:
+  #      - PolicyName: templatePolicy
+  #        PolicyDocument:
+  #          Statement:
+  #            - Effect: Allow
+  #              Action: 'ssm:*'
+  #              Resource: 'arn:aws:ssm:*:*:parameter/*'
+
+  #TemplateInstanceProfile:
+  #  Type: 'AWS::IAM::InstanceProfile'
+  #  Properties:
+  #    Path: /
+  #    Roles:
+  #      - !Ref TemplateRole
+
+  CapstoneLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: CapstoneLaunchTemplate
+      LaunchTemplateData:
+        #IamInstanceProfile:
+        #  Arn: !GetAtt
+        #    - TemplateInstanceProfile
+        #    - Arn
+        ImageId: !Ref AmazonLinuxAMIID
+        InstanceType: t2.micro
+        KeyName: AppKey
+        SecurityGroupIds: 
+          - !GetAtt AppSG.GroupId
+        UserData:
+          Fn::Base64: !Sub |
+            #!/bin/bash -ex
+            yum -y update
+            amazon-linux-extras install -y lamp-mariadb10.2-php7.2 php7.2
+            yum install -y httpd mariadb-server
+            chkconfig httpd on
+            service httpd start
+            cd /home/ec2-user
+            wget https://aws-tc-largeobjects.s3-us-west-2.amazonaws.com/ILT-TF-200-ACACAD-20-EN/capstone-project/Countrydatadump.sql
+            chown ec2-user:ec2-user Countrydatadump.sql
+            cd /var/www/html
+            wget https://aws-tc-largeobjects.s3-us-west-2.amazonaws.com/ILT-TF-200-ACACAD-20-EN/capstone-project/Example.zip
+            unzip Example.zip -d /var/www/html/
+
+  LoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Subnets:
+        Fn::Split:
+          - ","
+          - Fn::ImportValue:
+              Fn::Sub: ${NetworkStackName}-PublicSubnets
+      SecurityGroups:
+        - !Ref ALBSG
+      Tags:
+        - Key: Name
+          Value: CapstoneALB
+
+  DefaultTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: CapstoneTG
+      VpcId:
+        Fn::ImportValue:
+          !Sub ${NetworkStackName}-VPCID
+      Port: 80
+      Protocol: HTTP
+      
+  LoadBalancerListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref LoadBalancer
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref DefaultTargetGroup
+
+  CapstoneASG:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      MinSize: '2'
+      MaxSize: '4'
+      DesiredCapacity: '2'
+      LaunchTemplate:
+        LaunchTemplateId: !Ref CapstoneLaunchTemplate
+        Version:
+          !GetAtt CapstoneLaunchTemplate.LatestVersionNumber
+      VPCZoneIdentifier:
+        Fn::Split:
+          - ","
+          - Fn::ImportValue:
+              Fn::Sub: ${NetworkStackName}-PrivateSubnets
+      TargetGroupARNs:
+        - !Ref DefaultTargetGroup
+
+  CPUPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AutoScalingGroupName: !Ref CapstoneASG
+      PolicyType: TargetTrackingScaling
+      TargetTrackingConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ASGAverageCPUUtilization
+        TargetValue: 50
+
+Outputs:
+  AppSG:
+    Description: A reference to created App SG
+    Value: !Ref AppSG
+    Export:
+      Name: !Sub '${AWS::StackName}-AppSG'
+  
+  

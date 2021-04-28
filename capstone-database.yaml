@@ -1,0 +1,131 @@
+Description:  TODO
+
+Parameters:
+  ApplicationStackName:
+    Description: >-
+      Name of an active CloudFormation stack that contains the application
+      resources.
+    Type: String
+    MinLength: 1
+    MaxLength: 255
+    AllowedPattern: '^[a-zA-Z][-a-zA-Z0-9]*$'
+    Default: capstone-application
+    
+  NetworkStackName:
+    Description: >-
+      Name of an active CloudFormation stack that contains the network
+      resources.
+    Type: String
+    MinLength: 1
+    MaxLength: 255
+    AllowedPattern: '^[a-zA-Z][-a-zA-Z0-9]*$'
+    Default: capstone-network
+  DBName:
+    Default: country_schema
+    Description: Country database
+    Type: String
+    MinLength: '1'
+    MaxLength: '64'
+  DBInstanceClass:
+    Default: db.t2.micro
+    Description: DB instance class
+    Type: String
+    ConstraintDescription: Must select a valid DB instance type.
+  DBAllocatedStorage:
+    Default: '20'
+    Description: The size of the database (GiB)
+    Type: Number
+    MinValue: '5'
+    MaxValue: '1024'
+    ConstraintDescription: must be between 20 and 65536 GiB.
+  DBUsername:
+    Default: admin
+    Description: Username for MySQL database access
+    Type: String
+    MinLength: '1'
+    MaxLength: '16'
+    AllowedPattern: '[a-zA-Z][a-zA-Z0-9]*'
+    ConstraintDescription: must begin with a letter and contain only alphanumeric characters.
+  DBPassword:
+    Default: admin123
+    Description: Password MySQL database access
+    Type: String
+    MinLength: '8'
+    MaxLength: '41'
+    AllowedPattern: '[a-zA-Z0-9]*'
+    ConstraintDescription: must contain only alphanumeric characters.
+
+Resources:
+  DBSecurityGroup: 
+    Type: AWS::RDS::DBSecurityGroup
+    Properties: 
+      EC2VpcId:
+        Fn::ImportValue:
+          !Sub ${NetworkStackName}-VPCID
+      DBSecurityGroupIngress: 
+        - EC2SecurityGroupId:
+          Fn::ImportValue:
+            !Sub ${ApplicationStackName}-AppSG
+      GroupDescription: "Backend Access"
+      
+  DBSubnetGroup: 
+    Type: "AWS::RDS::DBSubnetGroup"
+    Properties: 
+      DBSubnetGroupDescription: DB Subnet Group
+      SubnetIds: 
+        Fn::Split:
+          - ","
+          - Fn::ImportValue:
+              Fn::Sub: ${NetworkStackName}-PrivateSubnets
+      Tags: 
+        - Key: Name
+          Value: DBSubnetGroup
+
+  CapstoneDB:
+    Type: 'AWS::RDS::DBInstance'
+    Properties:
+      DBName: !Ref DBName
+      DBInstanceClass: !Ref DBInstanceClass
+      AllocatedStorage: !Ref DBAllocatedStorage
+      Engine: MySQL
+      EngineVersion: 8.0.16
+      MultiAZ: true
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      DBSecurityGroups:
+        - Fn::ImportValue:
+              Fn::Sub: ${ApplicationStackName}-DBSG
+      MasterUsername: !Ref DBUsername
+      MasterUserPassword: !Ref DBPassword
+      
+  EndpointParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /example/endpoint
+      Type: String
+      Value: !GetAtt CapstoneDB.Endpoint.Address
+      Description: SSM Parameter for database endpoint.
+      
+  UserDBParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /example/username
+      Type: String
+      Value: !Ref DBUsername
+      Description: SSM Parameter for database username.
+      
+  PasswordDBParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /example/username
+      Type: String
+      Value: !Ref DBPassword
+      Description: SSM Parameter for database password.
+    
+  PasswordDBParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /example/database
+      Type: String
+      Value: !Ref DBName
+      Description: SSM Parameter for database name.
+      
