@@ -64,8 +64,8 @@ Resources:
           !Sub ${NetworkStackName}-VPCID
       DBSecurityGroupIngress: 
         - EC2SecurityGroupId:
-          Fn::ImportValue:
-            !Sub ${ApplicationStackName}-AppSG
+            Fn::ImportValue:
+              !Sub ${ApplicationStackName}-AppSG
       GroupDescription: "Backend Access"
       
   DBSubnetGroup: 
@@ -91,9 +91,8 @@ Resources:
       EngineVersion: 8.0.16
       MultiAZ: true
       DBSubnetGroupName: !Ref DBSubnetGroup
-      DBSecurityGroups:
-        - Fn::ImportValue:
-              Fn::Sub: ${ApplicationStackName}-DBSG
+      DBSecurityGroups: 
+        - !Ref DBSecurityGroup
       MasterUsername: !Ref DBUsername
       MasterUserPassword: !Ref DBPassword
       
