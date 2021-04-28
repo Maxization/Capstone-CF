@@ -127,7 +127,7 @@ Resources:
   PasswordDBParameter:
     Type: AWS::SSM::Parameter
     Properties:
-      Name: /example/username
+      Name: /example/password
       Type: String
       Value: !Ref DBPassword
       Description: SSM Parameter for database password.
