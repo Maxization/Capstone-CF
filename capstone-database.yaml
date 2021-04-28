@@ -54,7 +54,17 @@ Parameters:
     MaxLength: '41'
     AllowedPattern: '[a-zA-Z0-9]*'
     ConstraintDescription: must contain only alphanumeric characters.
+  DBSnapshotIdentifier:
+    Description: The RDS MySQL snapshot name to restore to the new DB instance.
+    Type: String
+    Default: ""
 
+Conditions:
+  UseDbSnapshot: !Not 
+      - !Equals
+        - !Ref DBSnapshotIdentifier
+        - ""
+        
 Resources:
   DBSecurityGroup: 
     Type: AWS::RDS::DBSecurityGroup
@@ -95,7 +105,9 @@ Resources:
         - !Ref DBSecurityGroup
       MasterUsername: !Ref DBUsername
       MasterUserPassword: !Ref DBPassword
-      
+      DBSnapshotIdentifier:
+        !If [UseDbSnapshot, !Ref DBSnapshotIdentifier, !Ref AWS::NoValue]
+
   EndpointParameter:
     Type: AWS::SSM::Parameter
     Properties:
